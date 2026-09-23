@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+.env.local
+.wix-cookies.json
+downloaded_images/
+*.html
+*.png
+.DS_Store

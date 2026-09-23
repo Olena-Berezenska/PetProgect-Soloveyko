@@ -1,0 +1,165 @@
+import * as fs from 'fs';
+import * as path from 'path';
+import fetch from 'node-fetch';
+
+// Інтерфейс для даних товару
+interface ProductData {
+  title: string;
+  description: string;
+  publisher: string;
+  price: string;
+  imageUrls: string[];
+}
+
+export class HtmlParser {
+  // Витягуємо дані з HTML сторінки
+  parseProductHtml(html: string): ProductData {
+    console.log('📄 Парсимо HTML...\n');
+
+    // 1️⃣ Витягуємо назву з мета тегу itemprop="name"
+    let titleMatch = html.match(/<meta\s+itemprop="name"\s+content="([^"]+)"/i);
+    let title = titleMatch ? titleMatch[1].trim() : '';
+
+    // Якщо не знайшли, шукаємо в <h1>
+    if (!title) {
+      titleMatch = html.match(/<h1[^>]*>([^<]+)<\/h1>/i);
+      title = titleMatch ? titleMatch[1].trim() : 'Невідомо';
+    }
+    console.log('📝 Назва:', title);
+
+    // 2️⃣ Витягуємо описання з мета тегу itemprop="description"
+    let descMatch = html.match(/<meta\s+itemprop="description"\s+content="([^"]*(?:[^"]|[^"])*?)"\s*\/>/i);
+    let description = descMatch ? descMatch[1].trim() : '';
+
+    // Якщо не знайшли, шукаємо як текст
+    if (!description) {
+      descMatch = html.match(/<div[^>]*class="[^"]*description[^"]*"[^>]*>([^<]+)<\/div>/i);
+      description = descMatch ? descMatch[1].trim() : '';
+    }
+    console.log('📄 Опис знайдено');
+
+    // 3️⃣ Витягуємо видавництво з Brand schema
+    const publisherMatch = html.match(/<div\s+itemprop="brand"[^>]*itemtype="[^"]*Brand"[^>]*>[\s\S]*?<meta\s+itemprop="name"\s+content="([^"]+)"/i);
+    const publisher = publisherMatch ? publisherMatch[1].trim() : '';
+    console.log('📚 Видавництво:', publisher || 'не знайдено');
+
+    // 4️⃣ Витягуємо ціну з мета тегу itemprop="price"
+    const priceMatch = html.match(/<meta\s+itemprop="price"\s+content="([^"]+)"/i);
+    const price = priceMatch ? priceMatch[1].trim() : '';
+    console.log('💰 Ціна:', price || 'не знайдено');
+
+    // 5️⃣ Витягуємо картинки з <meta property="og:image"> + <link itemprop="image">
+    const imageUrls: string[] = [];
+    let match;
+
+    // Спочатку додаємо og:image (головна картинка)
+    const ogImageRegex = /<meta\s+property="og:image"\s+content="([^"]+)"/gi;
+    while ((match = ogImageRegex.exec(html)) !== null) {
+      let url = match[1];
+      if (!url.includes('placeholder') && !url.includes('logo')) {
+        // Залишаємо query параметри як є - вони потрібні для Wix
+        imageUrls.push(url);
+      }
+    }
+
+    // Потім додаємо link itemprop="image" (решта картинок)
+    const linkImgRegex = /<link\s+itemprop="image"\s+href="([^"]+)"/gi;
+    while ((match = linkImgRegex.exec(html)) !== null) {
+      let url = match[1];
+      if (!url.includes('placeholder') && !url.includes('logo')) {
+        // Замінюємо домен на cloud.bookopt.com.ua
+        url = url.replace(/https?:\/\/bookopt\.com\.ua/i, 'https://cloud.bookopt.com.ua');
+        // Замінюємо /product/ на /product// (подвійний слеш)
+        url = url.replace(/\/product\//i, '/product//');
+        imageUrls.push(url);
+      }
+    }
+
+    // Якщо все ще не знайшли, шукаємо в <img>
+    if (imageUrls.length === 0) {
+      const imgRegex = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi;
+      while ((match = imgRegex.exec(html)) !== null) {
+        let url = match[1];
+        if (!url.includes('placeholder') && !url.includes('logo')) {
+          url = url.replace(/https?:\/\/bookopt\.com\.ua/i, 'https://cloud.bookopt.com.ua');
+          url = url.replace(/\/product\//i, '/product//');
+          imageUrls.push(url);
+        }
+      }
+    }
+
+    console.log(`🖼️  Знайдено ${imageUrls.length} картинок:`);
+    imageUrls.forEach((url, i) => {
+      console.log(`   ${i + 1}. ${url}`);
+      console.log(`      └─ Довжина: ${url.length} символів`);
+      console.log(`      └─ Перша частина: ${url.substring(0, 80)}`);
+    });
+
+    return {
+      title,
+      description,
+      publisher,
+      price,
+      imageUrls
+    };
+  }
+
+  // Завантажуємо картинки з URL
+  async downloadImages(imageUrls: string[], outputDir?: string): Promise<string[]> {
+    // Якщо папка не задана, використовуємо default
+    if (!outputDir) {
+      outputDir = './downloaded_images';
+    }
+
+    // Створюємо папку якщо її немає
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+      console.log(`✅ Створена папка: ${outputDir}`);
+    }
+
+    const downloadedPaths: string[] = [];
+
+    console.log(`\n📥 Завантажуємо ${imageUrls.length} картинок...`);
+
+    for (let i = 0; i < imageUrls.length; i++) {
+      const url = imageUrls[i];
+      try {
+        // Конвертуємо URL в абсолютний (якщо це відносний URL)
+        const absoluteUrl = this.makeAbsoluteUrl(url);
+
+        // Завантажуємо картинку
+        const response = await fetch(absoluteUrl);
+        const buffer = await response.buffer();
+
+        // Генеруємо ім'я файлу
+        const filename = `image_${i + 1}.jpg`;
+        const filepath = path.join(outputDir, filename);
+
+        // Зберігаємо файл
+        fs.writeFileSync(filepath, buffer);
+        downloadedPaths.push(filepath);
+
+        console.log(`   ✅ ${i + 1}/${imageUrls.length} - ${filename}`);
+      } catch (error) {
+        console.log(`   ❌ ${i + 1}/${imageUrls.length} - помилка завантаження`);
+      }
+    }
+
+    console.log(`\n✅ Завантажено ${downloadedPaths.length} картинок!`);
+    return downloadedPaths;
+  }
+
+  // Конвертуємо відносний URL в абсолютний
+  private makeAbsoluteUrl(url: string): string {
+    if (url.startsWith('http')) {
+      return url;
+    }
+    if (url.startsWith('//')) {
+      return 'https:' + url;
+    }
+    if (url.startsWith('/')) {
+      return 'https://bookopt.com.ua' + url;
+    }
+    return 'https://bookopt.com.ua/' + url;
+  }
+}
