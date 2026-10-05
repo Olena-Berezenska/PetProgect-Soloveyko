@@ -28,12 +28,12 @@ export class HtmlParser {
     console.log('📝 Назва:', title);
 
     // 2️⃣ Витягуємо описання з мета тегу itemprop="description"
-    let descMatch = html.match(/<meta\s+itemprop="description"\s+content="([^"]*(?:[^"]|[^"])*?)"\s*\/>/i);
+    let descMatch = html.match(/itemprop="description"\s+content="([^"]{1,5000})"/i);
     let description = descMatch ? descMatch[1].trim() : '';
 
     // Якщо не знайшли, шукаємо як текст
     if (!description) {
-      descMatch = html.match(/<div[^>]*class="[^"]*description[^"]*"[^>]*>([^<]+)<\/div>/i);
+      descMatch = html.match(/<div[^>]*description[^>]*>([^<]{1,1000})<\/div>/i);
       description = descMatch ? descMatch[1].trim() : '';
     }
     console.log('📄 Опис знайдено');
