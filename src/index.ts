@@ -6,6 +6,29 @@ import * as dotenv from 'dotenv';
 
 dotenv.config();
 
+function findHtmlFiles(): string[] {
+  const booksDir = path.join(__dirname, '../Books_htmls');
+
+  if (!fs.existsSync(booksDir)) {
+    throw new Error(`❌ Папка не знайдена: ${booksDir}`);
+  }
+
+  const files = fs.readdirSync(booksDir);
+  const htmlFiles = files.filter(file => file.endsWith('.html'));
+
+  if (htmlFiles.length === 0) {
+    throw new Error(`❌ HTML файлів не знайдено в папці: ${booksDir}`);
+  }
+
+  console.log(`📂 Знайдено ${htmlFiles.length} HTML файлів:\n`);
+  htmlFiles.forEach((file, index) => {
+    console.log(`   ${index + 1}. ${file}`);
+  });
+  console.log();
+
+  return htmlFiles.map(file => path.join(booksDir, file));
+}
+
 async function main() {
   const parser = new HtmlParser();
   const siteId = process.env.WIX_SITE_ID || '857d96b3-5a91-4742-9ebd-c864fafc1710';
@@ -15,50 +38,75 @@ async function main() {
   const automation = new WixAutomation(siteId);
 
   try {
-    // 1️⃣ Читаємо HTML файл
-    const htmlFilePath = path.join(__dirname, '../Книга Еміля.html');
+    // 1️⃣ Знаходимо всі HTML файли
+    const htmlFilePaths = findHtmlFiles();
 
-    if (!fs.existsSync(htmlFilePath)) {
-      throw new Error(`❌ Файл не знайдено: ${htmlFilePath}`);
-    }
-
-    console.log('📖 Читаємо HTML файл...\n');
-    const html = fs.readFileSync(htmlFilePath, 'utf-8');
-
-    // 2️⃣ Парсимо HTML
-    console.log('=== ПАРСИНГ HTML ===\n');
-    const productData = parser.parseProductHtml(html);
-
-    console.log('\n✅ ТОВАР ВИТЯГНУТО:\n');
-    console.log('📝 Назва:', productData.title);
-    console.log('📚 Видавництво:', productData.publisher);
-    console.log('📄 Опис:', productData.description.substring(0, 100) + '...');
-    console.log('🖼️  Картинок:', productData.imageUrls.length);
-
-    // 3️⃣ Завантажуємо картинки
-    console.log('\n=== ЗАВАНТАЖЕННЯ КАРТИНОК ===\n');
-    await parser.downloadImages(productData.imageUrls);
-
-    // 4️⃣ Запускаємо браузер
-    console.log('\n=== АВТОМАТИЗАЦІЯ WIX ===\n');
+    // 2️⃣ Запускаємо браузер один раз
+    console.log('=== ЗАПУСК БРАУЗЕРА ===\n');
     await automation.launch();
 
-    // 5️⃣ Логіниємось у Wix
+    // 3️⃣ Логіниємось один раз
+    console.log('=== ВХІД У WIX ===\n');
     if (!password) {
       throw new Error('❌ WIX_PASSWORD не встановлено в .env!');
     }
     const loginSuccess = await automation.login(email, password);
 
-    if (loginSuccess) {
-      // 6️⃣ Створюємо товар
-      await automation.createProduct(productData);
+    if (!loginSuccess) {
+      throw new Error('❌ Не вдалося залогінитися в Wix');
     }
 
-    // 7️⃣ Чекаємо перед закриттям
+    // 4️⃣ Цикл для кожного товару
+    console.log('\n' + '='.repeat(50));
+    console.log('📦 ПОЧАТОК СТВОРЕННЯ ТОВАРІВ');
+    console.log('='.repeat(50) + '\n');
+
+    for (let i = 0; i < htmlFilePaths.length; i++) {
+      const htmlFilePath = htmlFilePaths[i];
+      const fileName = path.basename(htmlFilePath);
+
+      try {
+        console.log(`\n[${i + 1}/${htmlFilePaths.length}] 📖 Обробка: ${fileName}`);
+        console.log('-'.repeat(50));
+
+        if (!fs.existsSync(htmlFilePath)) {
+          throw new Error(`❌ Файл не знайдено: ${htmlFilePath}`);
+        }
+
+        const html = fs.readFileSync(htmlFilePath, 'utf-8');
+
+        // Парсимо HTML
+        console.log('📝 Парсинг HTML...');
+        const productData = parser.parseProductHtml(html);
+
+        console.log(`✅ Витягнуто: "${productData.title}"`);
+        console.log(`   📚 Видавництво: ${productData.publisher}`);
+        console.log(`   🖼️  Картинок: ${productData.imageUrls.length}`);
+
+        // Завантажуємо картинки
+        console.log('📥 Завантаження картинок...');
+        await parser.downloadImages(productData.imageUrls);
+        console.log(`✅ Завантажено ${productData.imageUrls.length} картинок`);
+
+        // Створюємо товар у Wix
+        console.log('🚀 Створення товару в Wix...');
+        await automation.createProduct(productData);
+        console.log(`✅ Товар "${productData.title}" успішно створено!\n`);
+
+      } catch (itemError) {
+        console.error(`⚠️  Помилка при обробці ${fileName}:`, itemError);
+        console.log('⏭️  Переходимо до наступного товару...\n');
+      }
+    }
+
+    // 5️⃣ Закриваємо браузер
+    console.log('\n' + '='.repeat(50));
+    console.log('✅ ВСІ ТОВАРИ УСПІШНО СТВОРЕНО!');
+    console.log('='.repeat(50));
     await automation.close();
 
   } catch (error) {
-    console.error('❌ ПОМИЛКА:', error);
+    console.error('❌ КРИТИЧНА ПОМИЛКА:', error);
     await automation.close();
     process.exit(1);
   }

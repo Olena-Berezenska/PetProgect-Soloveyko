@@ -166,24 +166,29 @@ export class WixAutomation {
         console.log('✅ Успішно залогінено!');
         return true;
       } catch (e) {
-        console.log('⚠️  Можливо потребується код двофакторної аутентифікації');
-        console.log('💡 Введи код з пошти у браузері...');
-        console.log('⏳ Чекаємо 120 секунд...\n');
+        console.log('⚠️  Потребується завершення входу вручну');
+        console.log('💡 Будь ласка, завершіть вхід у браузері...');
+        console.log('⏳ Очікуємо вашої дії...\n');
 
-        // Чекаємо 120 сек, поки користувач введе код
-        for (let i = 0; i < 120; i++) {
-          const currentUrl = this.page.url();
-          if (currentUrl.includes('dashboard')) {
-            console.log('✅ Успішно залогінено!');
-            return true;
+        // Чекаємо 300 сек (5 хвилин), поки користувач залогінеться вручну
+        for (let i = 0; i < 300; i++) {
+          try {
+            const currentUrl = this.page.url();
+            if (currentUrl.includes('dashboard')) {
+              console.log('\n✅ Успішно залогінено!');
+              return true;
+            }
+            if (i % 30 === 0 && i > 0) {
+              console.log(`   ⏳ ${300 - i} сек залишилось... (натисніть Ctrl+C для виходу)`);
+            }
+            await this.page.waitForTimeout(1000);
+          } catch (innerError) {
+            // Проігноруємо помилки під час перевірки
+            break;
           }
-          if (i % 20 === 0 && i > 0) {
-            console.log(`   ⏳ ${120 - i} сек залишилось...`);
-          }
-          await this.page.waitForTimeout(1000);
         }
 
-        console.log('❌ 2FA код не введено за 120 секунд');
+        console.log('❌ Вхід не завершено за 5 хвилин');
         return false;
       }
     } catch (error) {
