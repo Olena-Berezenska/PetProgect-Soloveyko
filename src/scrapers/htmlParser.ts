@@ -11,6 +11,30 @@ interface ProductData {
   imageUrls: string[];
 }
 
+// Іменовані HTML-сутності, які трапляються в описах
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
+  mdash: '—', ndash: '–', minus: '−', hellip: '…',
+  laquo: '«', raquo: '»', bdquo: '„', ldquo: '“', rdquo: '”',
+  lsquo: '‘', rsquo: '’', sbquo: '‚', prime: '′', Prime: '″',
+  copy: '©', reg: '®', trade: '™', deg: '°', times: '×',
+  middot: '·', bull: '•', sect: '§', para: '¶', shy: '',
+  euro: '€'
+};
+
+// Перетворюємо HTML-сутності (&mdash; &rsquo; &#8211; &#x2014; …) у звичайні символи
+export function decodeHtmlEntities(text: string): string {
+  return text.replace(/&(#x[0-9a-f]{1,6}|#[0-9]{1,7}|[a-z][a-z0-9]{1,31});/gi, (entity, code: string) => {
+    if (code[0] === '#') {
+      const num = code[1] === 'x' || code[1] === 'X'
+        ? parseInt(code.slice(2), 16)
+        : parseInt(code.slice(1), 10);
+      return num > 0 && num <= 0x10ffff ? String.fromCodePoint(num) : entity;
+    }
+    return NAMED_ENTITIES[code] ?? entity;
+  });
+}
+
 export class HtmlParser {
   // Витягуємо дані з HTML сторінки
   parseProductHtml(html: string): ProductData {
@@ -96,9 +120,9 @@ export class HtmlParser {
     });
 
     return {
-      title,
-      description,
-      publisher,
+      title: decodeHtmlEntities(title),
+      description: decodeHtmlEntities(description),
+      publisher: decodeHtmlEntities(publisher),
       price,
       imageUrls
     };
