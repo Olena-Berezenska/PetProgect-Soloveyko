@@ -51,9 +51,15 @@ export class HtmlParser {
     }
     console.log('📝 Назва:', title);
 
-    // 2️⃣ Витягуємо описання з мета тегу itemprop="description"
-    let descMatch = html.match(/itemprop="description"\s+content="([^"]{1,5000})"/i);
-    let description = descMatch ? descMatch[1].trim() : '';
+    // 2️⃣ Витягуємо описання з блоку #desc_product (там збережені списки),
+    // інакше — з мета тегу itemprop="description"
+    let description = this.extractDescriptionBlock(html);
+    let descMatch: RegExpMatchArray | null = null;
+
+    if (!description) {
+      descMatch = html.match(/itemprop="description"\s+content="([^"]{1,5000})"/i);
+      description = descMatch ? descMatch[1].trim() : '';
+    }
 
     // Якщо не знайшли, шукаємо як текст
     if (!description) {
@@ -126,6 +132,58 @@ export class HtmlParser {
       price,
       imageUrls
     };
+  }
+
+  // Беремо вміст <div id="desc_product"> і перетворюємо його на текст зі списками
+  private extractDescriptionBlock(html: string): string {
+    const start = html.search(/<div[^>]*\bid="desc_product"[^>]*>/i);
+    if (start === -1) {
+      return '';
+    }
+
+    // Шукаємо закриваючий </div> з урахуванням вкладених div
+    const divTagRegex = /<(\/?)div\b[^>]*>/gi;
+    divTagRegex.lastIndex = start;
+    let depth = 0;
+    let contentStart = -1;
+    let contentEnd = -1;
+    let tag;
+    while ((tag = divTagRegex.exec(html)) !== null) {
+      if (tag[1]) {
+        depth--;
+        if (depth === 0) {
+          contentEnd = tag.index;
+          break;
+        }
+      } else {
+        if (depth === 0) {
+          contentStart = tag.index + tag[0].length;
+        }
+        depth++;
+      }
+    }
+    if (contentStart === -1 || contentEnd === -1) {
+      return '';
+    }
+
+    return this.htmlToText(html.slice(contentStart, contentEnd));
+  }
+
+  // Перетворюємо HTML опису на текст: пункти списку з "•", абзаци з нового рядка
+  private htmlToText(fragment: string): string {
+    return fragment
+      .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
+      .replace(/<a\b[^>]*class="[^"]*\bbtn\b[^"]*"[^>]*>[\s\S]*?<\/a>/gi, '') // кнопки-посилання
+      .replace(/&nbsp;|&#160;|&#xa0;/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .replace(/<li\b[^>]*>/gi, '\n• ')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/?(p|div|h[1-6]|ul|ol|li|table|tr)\b[^>]*>/gi, '\n')
+      .replace(/<[^>]+>/g, '')
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0)
+      .join('\n');
   }
 
   // Завантажуємо картинки з URL
